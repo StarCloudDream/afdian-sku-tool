@@ -1,6 +1,7 @@
 name: 打包
 
-# 打个 tag 推上去就自动出三个平台的成品，也可以到 Actions 页面手动点一下。
+# 打个 tag 推上去，三个平台的成品都打出来，顺手发个 Release 把文件挂上去。
+# 也可以到 Actions 页面手动点一下 —— 手动跑只构建、不发 Release。
 # Windows 这边其实本地也能打，macOS 和 Linux 就靠这里了 —— PyInstaller 不支持交叉编译，
 # 只能各回各家打。
 on:
@@ -74,5 +75,51 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: afdian-sku-tool-${{ matrix.name }}
-          path: dist/*
+          # 自检跑完会在 dist 里留一份 sku_tool.log，那不是给用户的东西，排掉
+          path: |
+            dist/*
+            !dist/sku_tool.log
           if-no-files-found: error
+
+  # 三个平台都成功了才发 Release；只在推 tag 时跑，手动触发就跳过
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+
+    # 发 Release 是要往仓库里写东西的，默认 token 权限不够。
+    # 只给这个 job 开，build 那边保持默认就行。
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # 下载下来的每个 artifact 里还裹着一层 GitHub 自己打的 zip，
+      # 解出来只有各自那一个文件，这里挑出要发布的那三个
+      - name: 收拢发布文件
+        run: |
+          mkdir -p release
+          cp artifacts/afdian-sku-tool-windows/afdian_sku_app.exe        release/
+          cp artifacts/afdian-sku-tool-macos/afdian_sku_app-macos.zip    release/
+          cp artifacts/afdian-sku-tool-linux/afdian_sku_app-linux.tar.gz release/
+          ls -l release
+
+      # 说明文案在 .github/release-notes.md 里，改那个文件就行
+      # 已经发过 Release 的情况（比如重新推了 tag）就改成补传，不重复建
+      - name: 发 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="$GITHUB_REF_NAME"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" release/* --clobber
+          else
+            gh release create "$tag" release/* \
+              --title "$tag" \
+              --notes-file .github/release-notes.md
+          fi
