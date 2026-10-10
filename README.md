@@ -1,6 +1,7 @@
 <img src="icon.png" width="120" alt="">
 
 # 爱发电 SKU 查询器
+<img width="816" height="289" alt="image" src="https://github.com/user-attachments/assets/7096b933-198a-4b7f-94ec-832bba8bd44f" />
 
 把爱发电的商品地址粘进来，它告诉你这个商品的 `plan_id` 和 `sku_id`。
 
@@ -96,6 +97,14 @@ macOS 和 Linux 走标准库，没有这个待遇。
 
 CozyUI+ 是个 Minecraft 材质包，把原版界面和一堆客户端模组的界面重做成了干净柔和的高清风格，
 顺便也欢迎去给那个仓库点个 ⭐。
+
+----
+
+如果喜欢也可以支持一下薄荷（StarCloudDream）这有助于薄荷开发更多有趣的项目。：
+https://afdian.com/a/StarCloudDream?utm_source=copylink&utm_medium=link
+<img width="750" height="1032" alt="afdian- 未认证 星云梦" src="https://github.com/user-attachments/assets/0b3fdf4f-99ec-4a77-af93-587036574fd8" />
+
+----
 
 ## 许可
 
