@@ -90,7 +90,7 @@ macOS 和 Linux 走标准库，没有这个待遇。
 
 ## 关于界面
 
-界面上的图是从我自己做的 [CozyUI+](https://github.com/Fogg05/CozyUI-Plus/) 材质包里裁下来的，
+界面上的图是从05的 [CozyUI+](https://github.com/Fogg05/CozyUI-Plus/) 材质包里裁下来的，
 用的是 Minecraft GUI 那套九宫格贴图，切法记在 `app_assets/manifest.json` 里。
 输入框、结果面板、滚动条这几块没有现成素材，是手写的 CSS。
 
@@ -101,5 +101,4 @@ CozyUI+ 是个 Minecraft 材质包，把原版界面和一堆客户端模组的�
 
 代码 MIT，随便用。
 
-`app_assets/` 里那十张界面图来自 CozyUI+ ——我是那个材质包的作者，所以这里的素材也一并按 MIT 给。
-如果哪天你想把这些图单独挖出去用在别处，那就按 CozyUI+ 自己的 GPL 来算。
+`app_assets/` 里那十张界面图来自 CozyUI+ ——所以素材按照 GPL 协议这一点需要注意。
