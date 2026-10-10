@@ -100,8 +100,9 @@ CozyUI+ 是个 Minecraft 材质包，把原版界面和一堆客户端模组的�
 
 ----
 
-如果喜欢也可以支持一下薄荷（StarCloudDream）这有助于薄荷开发更多有趣的项目。：
+如果喜欢也可以支持一下薄荷（StarCloudDream）这有助于薄荷开发更多有趣的项目：
 https://afdian.com/a/StarCloudDream?utm_source=copylink&utm_medium=link
+You can also choose to sponsor me directly on GitHub, which could be a huge help for my future development.
 
 <img width="375" height="516" alt="afdian- 未认证 星云梦" src="https://github.com/user-attachments/assets/0b3fdf4f-99ec-4a77-af93-587036574fd8" />
 
