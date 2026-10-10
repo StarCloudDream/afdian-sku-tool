@@ -1,0 +1,143 @@
+{
+ "button": {
+  "file": "app_assets/button.png",
+  "size": [
+   800,
+   80
+  ],
+  "dec": [
+   200,
+   20
+  ],
+  "border": [
+   8,
+   8,
+   8,
+   8
+  ],
+  "slice": [
+   32,
+   32,
+   32,
+   32
+  ],
+  "stretch_inner": true
+ },
+ "button_off": {
+  "file": "app_assets/button_off.png",
+  "size": [
+   800,
+   80
+  ],
+  "dec": [
+   200,
+   20
+  ],
+  "border": [
+   8,
+   8,
+   8,
+   8
+  ],
+  "slice": [
+   32,
+   32,
+   32,
+   32
+  ],
+  "stretch_inner": true
+ },
+ "info": {
+  "file": "app_assets/info.png",
+  "size": [
+   80,
+   80
+  ],
+  "dec": null,
+  "border": null,
+  "slice": null
+ },
+ "button_press": {
+  "file": "app_assets/button_press.png",
+  "size": [
+   800,
+   80
+  ],
+  "dec": [
+   200,
+   20
+  ],
+  "border": [
+   8,
+   8,
+   8,
+   8
+  ],
+  "slice": [
+   32,
+   32,
+   32,
+   32
+  ],
+  "stretch_inner": true,
+  "note": "slider.png；无 animation，几何与 button 完全一致，slice 32。中心色 (48,45,44) 深炭 —— 白字在此可读"
+ },
+ "checkbox_off": {
+  "file": "app_assets/checkbox_off.png",
+  "size": [
+   80,
+   80
+  ],
+  "dec": null,
+  "slice": null
+ },
+ "checkbox_on": {
+  "file": "app_assets/checkbox_on.png",
+  "size": [
+   80,
+   80
+  ],
+  "dec": null,
+  "slice": null
+ },
+ "checkbox_on_hover": {
+  "file": "app_assets/checkbox_on_hover.png",
+  "size": [
+   80,
+   80
+  ],
+  "dec": null,
+  "slice": null
+ },
+ "checkbox_off_hover": {
+  "file": "app_assets/checkbox_off_hover.png",
+  "size": [
+   80,
+   80
+  ],
+  "dec": null,
+  "slice": null
+ },
+ "button_hover_anim": {
+  "file": "app_assets/button_hover_anim.png",
+  "size": [
+   320,
+   2640
+  ],
+  "dec": null,
+  "slice": null,
+  "frames": 33,
+  "frame_h": 80,
+  "frametime_ms": 50,
+  "note": "button_highlighted.png 的完整动画序列（33 步：0→15、停 4 帧、15→1），每步 50ms，整轮 1.65s。CSS 用 background-position-y + steps(33) 播；帧高 = 按钮高(56px)。"
+ },
+ "hero": {
+  "file": "app_assets/hero.jpg",
+  "size": [
+   1024,
+   248
+  ],
+  "dec": null,
+  "slice": null
+ }
+}

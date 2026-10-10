@@ -1,0 +1,6 @@
+# 窗口就靠它，剩下的都是 Python 标准库
+pywebview>=5.0
+
+# 提一下：macOS 上 pywebview 还要 pyobjc 那几个包，装的时候它会自己带上；
+# Linux 上要 PyGObject + WebKitGTK，这两个是系统包，pip 装不了，得用 apt/dnf 装，
+# README 里有命令。

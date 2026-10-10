@@ -1,0 +1,19 @@
+# Python 自己的缓存
+__pycache__/
+*.py[cod]
+
+# 打包产物和中间目录，别往仓库里塞
+dist/
+build/
+_bundle/
+_tmp/
+*.spec
+
+# 跑起来才会有的日志
+sku_tool.log
+
+# 编辑器 / 系统的碎东西
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

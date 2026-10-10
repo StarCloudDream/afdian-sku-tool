@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>爱发电 SKU 查询器</title>
+<link rel="icon" href="data:,"><!-- 免掉浏览器对 /favicon.ico 的自动请求（那就是之前那个 404） -->
+<style>
+/* 窗口分三段：顶图、查询区、结果面板。
+   图是从 CozyUI+ 里裁的，怎么切的记在 app_assets/manifest.json；
+   输入框、结果面板、滚动条没有现成素材，都是手写的。
+
+   圆角交给系统去做（Windows 的 DWM 会给 8px 上下）。本来想让页面自己画透明圆角，
+   试了发现 transparent 在 Windows 上不起作用，该透明的地方露出来的是窗体灰底，
+   四个角反而多一圈浅灰。那就页面铺满不透明底色，--winr 比系统圆角小一点就看不出来了。 */
+*{box-sizing:border-box}
+:root{
+  --bg:#15171b; --card:#171b21; --head:#1b1f26;
+  --fg:#eef1f6; --dim:#9aa3b2; --dim2:#737c8c;
+  --line:rgba(255,255,255,.10); --line2:rgba(255,255,255,.16);
+  --accent:#8b88ff; --ok:#5ddc8a; --err:#ff7a7a; --warn:#ffc46b;
+  --mint:#7ff0cd; --teal:#0fb8ad;
+  --ui:"Microsoft YaHei UI","Microsoft YaHei",-apple-system,"Segoe UI",system-ui,sans-serif;
+  --mono:ui-monospace,Consolas,"Cascadia Mono","Courier New",monospace;
+  --winr:8px;    /* 比系统那个圆角稍微小一点，两条弧叠着才不露底 */
+  --r12:12px;    /* 卡片和头部盒子 */
+  --pill:21px;   /* 单行时刚好是高度的一半（药丸）；多行继续保持这个弧度，就成了圆角矩形 */
+}
+html,body{margin:0;height:100%;overflow:hidden}
+/* 铺满不透明底色，把窗体的灰底盖掉 */
+body{background:var(--bg);color:var(--fg);font:14.5px/1.7 var(--ui);
+  -webkit-user-select:none;user-select:none}
+
+/* 页面、查询区、输入框的滚动条全部藏掉（连位置都不占）。
+   只有结果列表留一条：半透明药丸当轨道，中间一个小白药丸当滑块。
+
+   注意 scrollbar-width 和 ::-webkit-scrollbar 在 Chromium 里不能同时写，
+   写了前者后者整条失效，所以这两条路必须是分开的元素，别图省事合到一处。 */
+html,body,.body,textarea{scrollbar-width:none;-ms-overflow-style:none}
+html::-webkit-scrollbar,body::-webkit-scrollbar,
+.body::-webkit-scrollbar,textarea::-webkit-scrollbar{width:0;height:0;display:none}
+
+/* 窗口外框 */
+.win{max-width:1080px;height:100%;margin:0 auto;background:var(--bg);
+  border-radius:var(--winr);overflow:hidden;
+  display:flex;flex-direction:column}
+
+/* 顶部大图 */
+/* 窗口一共就 289px 高，大图被压成一条横幅；出结果时再收窄到 78px 给列表让位 */
+.hero{position:relative;flex:1 1 auto;min-height:76px;max-height:180px;
+  background:#0d0f13 url("app_assets/hero.jpg") center 44%/cover no-repeat}
+body.has-results .hero{flex:0 0 78px;min-height:78px;max-height:78px}
+body.has-results .hero-badge,
+body.has-results .hero-ttl .sub{display:none}
+body.has-results .hero-ttl{bottom:11px}
+body.has-results .hero-ttl h1{font-size:17px}
+.hero::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(to bottom,
+    rgba(21,23,27,.55) 0%, rgba(21,23,27,0) 26%,
+    rgba(21,23,27,.30) 62%, rgba(21,23,27,.82) 86%, var(--bg) 100%)}
+/* 无边框窗口靠这块地方拖（pywebview 认 .pywebview-drag-region）。
+   得是个没有子元素的空层 —— pywebview 默认"按在子元素上也算拖窗口"，
+   要是把这个类直接挂到 .hero 上，从这儿按住拖的时候，右上角那个按钮会被一起点掉。 */
+.draglayer{position:absolute;inset:0;z-index:1;cursor:default}
+/* 标题这块贴左下角。横幅矮，所以字号收小、副标题压成一行 */
+.hero-ttl{position:absolute;left:22px;bottom:13px;z-index:2;pointer-events:none}
+/* 标题、作者药丸、版本号排成一行 */
+.hero-ttl h1{display:flex;align-items:center;gap:8px;
+  font-size:20px;margin:0;font-weight:800;letter-spacing:.6px;color:#fff;
+  line-height:1.2;text-shadow:0 2px 12px rgba(0,0,0,.9),0 1px 3px rgba(0,0,0,.9)}
+.hero-ttl h1 .ttl{white-space:nowrap}
+.hero-ttl h1 em{font-style:normal;color:#c3c0ff}
+/* 标题旁边那枚药丸，点了跳爱发电。
+   长相还是原来那个作者小标签：半透明白底 + 白字 + 全圆角。 */
+.tag{display:inline-flex;align-items:center;gap:5px;height:17px;padding:0 9px;
+  border-radius:999px;background:rgba(255,255,255,.16);
+  border:1px solid rgba(255,255,255,.24);
+  font:700 10px/1 var(--ui);letter-spacing:.3px;color:#fff;white-space:nowrap;
+  text-shadow:0 1px 4px rgba(0,0,0,.85);
+  cursor:pointer;pointer-events:auto;      /* 父级把鼠标事件关了，这里得单独打开才点得动 */
+  transition:background .15s,transform .1s}
+.tag:hover{background:rgba(255,255,255,.3)}
+.tag:active{transform:scale(.97)}
+.tag .by{font-weight:600;opacity:.78}
+/* 点查询的时候这枚药丸会亮一下，让它"动"一次，比一直静静躺着更容易被看见。
+   一次大约 1.2 秒就恢复原样，用的是查询按钮那支青蓝，颜色上看着是一家人。 */
+@keyframes sponsorGlow{
+  0%  {background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.24);
+       box-shadow:0 0 0 0 rgba(15,184,173,0)}
+  18% {background:rgba(15,184,173,.95);border-color:rgba(127,240,205,.95);
+       box-shadow:0 0 0 3px rgba(15,184,173,.40),0 0 20px 5px rgba(15,184,173,.75)}
+  60% {background:rgba(15,184,173,.45);border-color:rgba(15,184,173,.60);
+       box-shadow:0 0 0 2px rgba(15,184,173,.18),0 0 12px 2px rgba(15,184,173,.35)}
+  100%{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.24);
+       box-shadow:0 0 0 0 rgba(15,184,173,0)}
+}
+.tag.glow{animation:sponsorGlow 1.25s ease-out 1}
+/* 版本号，点了跳 GitHub。同样要单独打开鼠标事件 */
+.ver{font-size:11px;font-weight:600;color:#fff;opacity:.88;cursor:pointer;
+  text-decoration:none;pointer-events:auto;white-space:nowrap;
+  text-shadow:0 1px 6px rgba(0,0,0,.92)}
+.ver:hover{opacity:1;text-decoration:underline}
+.hero-ttl .sub{color:rgba(255,255,255,.84);font-size:11px;margin-top:3px;
+  letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  text-shadow:0 1px 8px rgba(0,0,0,.95),0 1px 2px rgba(0,0,0,.9)}
+.hero-badge{font-size:10px;letter-spacing:2px;color:rgba(255,255,255,.6);
+  margin-bottom:2px;text-shadow:0 1px 6px rgba(0,0,0,.9)}
+
+/* 右上角就剩下窗口控制那几个圆钮了 */
+.hero-right{position:absolute;top:9px;right:11px;z-index:3;
+  display:flex;align-items:center;gap:9px}
+
+/* 窗口控制圆钮 */
+.wctl{position:static;display:flex;gap:7px}
+.wc{width:29px;height:29px;border:0;border-radius:50%;cursor:pointer;padding:0;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(8,10,14,.62);color:#fff;font-size:13.5px;line-height:1;
+  font-family:var(--ui);transition:background .15s,transform .1s}
+.wc:hover{background:rgba(8,10,14,.88)}
+.wc:active{transform:scale(.94)}
+.wc.cls:hover{background:#c0392b}
+
+/* 查询区，固定在顶上不跟着滚 */
+.body{flex:0 0 auto;padding:11px 24px 18px}
+.lblrow{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
+  margin-bottom:6px}
+.lblrow .l{font-size:12.5px;font-weight:700;letter-spacing:.4px}
+.lblrow .r{font-size:11px;color:var(--dim2)}
+
+/* 输入框是画出来的，没贴图。
+   一行的时候高度 46、圆角 23，正好是个药丸；换行了就把高度撑开、圆角保持 23，
+   看起来从药丸变成了圆角矩形。 */
+.fieldwrap{position:relative}
+textarea{display:block;width:100%;height:42px;min-height:42px;max-height:92px;
+  resize:none;overflow-y:auto;
+  background:#101216;color:var(--mint);outline:none;
+  border:1px solid var(--line2);border-radius:var(--pill);
+  padding:10px 44px 10px 16px;
+  font:700 13px/1.5 var(--mono);letter-spacing:.2px;
+  -webkit-user-select:text;user-select:text;caret-color:var(--mint);
+  transition:border-color .15s,background .15s,box-shadow .15s}
+textarea:hover{border-color:rgba(255,255,255,.24)}
+textarea:focus{border-color:rgba(15,184,173,.8);background:#0d1216;
+  box-shadow:0 0 0 3px rgba(15,184,173,.13)}
+textarea::placeholder{color:#5f6875;font-weight:400}
+textarea::selection{background:rgba(15,184,173,.42)}
+/* 清空按钮：一行时贴右边垂直居中，多行时固定到右下角 */
+.fclear{position:absolute;right:10px;top:50%;transform:translateY(-50%);
+  width:24px;height:24px;border:0;border-radius:50%;cursor:pointer;padding:0;
+  background:rgba(255,255,255,.08);
+  display:flex;align-items:center;justify-content:center;transition:background .15s}
+.fieldwrap.multi .fclear{top:auto;bottom:9px;transform:none}
+.fclear:hover{background:rgba(255,255,255,.17)}
+.fclear i{position:relative;display:block;width:10px;height:10px}
+.fclear i::before,.fclear i::after{content:"";position:absolute;left:0;top:4.5px;
+  width:10px;height:1.5px;border-radius:2px;background:#cfd6e0}
+.fclear i::before{transform:rotate(45deg)}
+.fclear i::after{transform:rotate(-45deg)}
+.fclear:hover i::before,.fclear:hover i::after{background:#fff}
+
+/* 复选框、两条提示药丸、主按钮全挤在一行里。
+   药丸以前是自己占一行沉在底部的，后来挪上来合并了，按钮用 margin-left:auto 顶到最右。 */
+.actrow{display:flex;align-items:center;gap:10px;margin-top:9px;flex-wrap:nowrap}
+.actrow .mbtn{margin-left:auto}
+.checkrow{display:flex;align-items:center;gap:8px;
+  font-size:12px;color:var(--dim);cursor:pointer;white-space:nowrap}
+.cbx{width:18px;height:18px;flex:0 0 auto;
+  background:url("app_assets/checkbox_off.png") center/contain no-repeat}
+.cbx.on{background-image:url("app_assets/checkbox_on.png")}
+.checkrow:hover .cbx{background-image:url("app_assets/checkbox_off_hover.png")}
+.checkrow:hover .cbx.on{background-image:url("app_assets/checkbox_on_hover.png")}
+.checkrow:hover{color:var(--fg)}
+
+/* 主按钮，44px 高，靠在操作行右边 */
+.mbtn{--c:18px;--bh:44px;--frames:33;
+  position:relative;display:inline-flex;align-items:center;justify-content:center;
+  height:var(--bh);min-width:168px;padding:0 16px;margin:0;border:0;background:none;
+  cursor:pointer;font:700 14px/1 var(--ui);color:#fff;letter-spacing:.6px;
+  white-space:nowrap;outline:none;isolation:isolate;flex:0 0 auto;
+  text-shadow:0 1px 2px rgba(0,0,0,.78),0 0 2px rgba(0,0,0,.6)}
+.mbtn::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;
+  border:var(--c) solid transparent;
+  border-image-source:url("app_assets/button.png");
+  border-image-slice:32 fill;border-image-width:var(--c);border-image-repeat:stretch}
+/* 鼠标放上去那张图本身是个动画：
+   button_highlighted.png 一共 16 帧、每帧 80px，序列是 [0…15, 15,15,15,15, 14…1]，
+   跑一整轮 1.65 秒（第 0 帧两边箭头最亮，然后慢慢暗下去）。
+   做法是把这 33 步拼成一张竖着的长图，background-size 按按钮高度缩放，
+   再用 steps(33) 以按钮高度为步长推 background-position-y，总高正好 33 格，一格不差。 */
+.mbtn:hover::before{border-image-source:none;border:0;
+  background-image:url("app_assets/button_hover_anim.png");
+  background-repeat:no-repeat;
+  background-origin:border-box;background-clip:border-box;
+  background-size:100% calc(var(--bh) * var(--frames));
+  background-position:0 0;
+  animation:btnHoverAnim 1.65s steps(33) infinite}
+@keyframes btnHoverAnim{
+  from{background-position:0 0}
+  to{background-position:0 calc(var(--bh) * var(--frames) * -1)}
+}
+.mbtn:active::before{border-image-source:url("app_assets/button_press.png");
+  border-image-slice:32 fill;border-image-width:var(--c);
+  border:var(--c) solid transparent;background:none;animation:none}
+.mbtn:disabled{cursor:default}
+.mbtn:disabled::before{border-image-source:url("app_assets/button_off.png");
+  border-image-slice:32 fill;border-image-width:var(--c);
+  border:var(--c) solid transparent;background:none;opacity:.75;animation:none}
+.spin{display:inline-block;width:11px;height:11px;border:2px solid rgba(255,255,255,.35);
+  border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite;
+  vertical-align:-1px;margin-right:8px}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* 青蓝小药丸提示，现在也在这行里 */
+.pill{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;white-space:nowrap;
+  background:var(--teal);color:#fff;border-radius:999px;padding:3px 10px;
+  font-size:10.5px;font-weight:700;letter-spacing:.2px;
+  box-shadow:0 3px 12px rgba(15,184,173,.28)}
+.pill img{width:11px;height:11px;filter:brightness(0) invert(1);opacity:.95;flex:0 0 auto}
+.pill.alt{background:#177f8b;box-shadow:0 3px 12px rgba(23,127,139,.24)}
+.pill code{font-family:var(--mono);font-size:10px;color:#e7fffb}
+
+/* 结果面板：
+   头部是个单独的圆角盒子，不跟着列表滚；列表紧贴它下沿，
+   往上滚的时候会被边缘裁掉，所以看着就像"滚进头部里消失了"；
+   每条卡片再按离焦点线的远近缩放、淡出，做出通知栏那种味道。 */
+.rpanel{display:none;flex:1 1 auto;min-height:0;margin:0 24px 12px;
+  flex-direction:column}
+body.has-results .rpanel{display:flex}
+
+/* 头部盒子。它也是第二块拖动区（展开结果后大图只剩 78px，这儿也能拖） */
+.rhead{flex:0 0 auto;position:relative;z-index:2;
+  background:var(--head);border:1px solid var(--line);border-radius:var(--r12);
+  padding:6px 14px 8px;box-shadow:0 8px 18px rgba(0,0,0,.42)}
+.rtab{position:relative;display:inline-block;font-size:13px;font-weight:700;
+  letter-spacing:.4px;pointer-events:none}
+.rtab::after{content:"";position:absolute;left:0;bottom:-6px;width:22px;height:2px;
+  border-radius:2px;background:#fff}
+
+/* 列表，整个界面里唯一能滚的地方 */
+.rlist{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;
+  position:relative;padding:12px 5px 0 0}
+.rlist::-webkit-scrollbar{display:block;width:11px;height:11px}
+.rlist::-webkit-scrollbar-track{background:rgba(255,255,255,.15);
+  border-radius:999px;margin:6px 0}
+.rlist::-webkit-scrollbar-thumb{background:rgba(255,255,255,.95);
+  border-radius:999px;border:3.5px solid transparent;background-clip:content-box;
+  min-height:40px}
+.rlist::-webkit-scrollbar-thumb:hover{background:#fff;background-clip:content-box}
+.rlist::-webkit-scrollbar-button{display:none;height:0}
+
+/* 结果卡片 */
+.ritem{position:relative;background:var(--card);border:1px solid var(--line);
+  border-radius:11px;padding:9px 12px;margin-bottom:9px;
+  transform-origin:50% 0;will-change:transform,opacity}
+.ritem .top{display:flex;justify-content:space-between;gap:12px;align-items:baseline;
+  margin-bottom:6px}
+.ritem .nm{font-weight:800;font-size:13px;letter-spacing:.3px;line-height:1.4}
+.ritem .price{color:var(--ok);font-weight:800;white-space:nowrap;font-size:13px}
+.row{display:flex;align-items:center;gap:8px;margin-top:6px;min-width:0}
+.row .k{flex:0 0 46px;color:var(--dim2);font-size:11px}
+code{font:11.5px var(--mono);color:var(--fg);background:#0f1114;
+  border:1px solid #2b3038;border-radius:6px;padding:2px 8px;
+  word-break:break-all;-webkit-user-select:text;user-select:text;display:inline-block}
+/* id 那个底框：圆角矩形（8px，跟右边那个药丸按钮区分开），
+   高度和复制按钮一样是 24px。字号没动，还是全局 code 的 11.5px。 */
+.row code{flex:1;min-width:0;height:24px;line-height:22px;padding:0 10px;
+  border-radius:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row.sku code{color:var(--accent);border-color:#33384a;background:#0d0f13}
+.src{color:var(--dim2);font-size:10.5px;margin-top:7px}
+/* 复制按钮，长得跟旁边那枚「右键 → 复制链接地址」的提示药丸一模一样
+   （同一种青蓝底、白色粗字、全圆角、同样的投影）。 */
+.cp{display:inline-flex;align-items:center;justify-content:center;
+  height:24px;min-width:48px;padding:0 11px;border:0;border-radius:999px;
+  background:var(--teal);color:#fff;cursor:pointer;white-space:nowrap;flex:0 0 auto;
+  font:700 10.5px/1 var(--ui);letter-spacing:.2px;
+  box-shadow:0 3px 12px rgba(15,184,173,.28);
+  transition:filter .15s,transform .1s}
+.cp:hover{filter:brightness(1.15)}
+.cp:active{filter:brightness(.85);transform:scale(.96)}
+.cp.done{background:#177f8b;box-shadow:0 3px 12px rgba(23,127,139,.24)}  /* 复制成功了，颜色压深一档 */
+.cp.fail{background:#b4462f;box-shadow:0 3px 12px rgba(180,70,47,.3)}     /* 复制失败要变红，别让人以为点成功了 */
+.none{font-size:12.5px;color:#ffdca6;background:rgba(255,196,107,.09);
+  border:1px solid rgba(255,196,107,.3);border-radius:10px;padding:9px 12px;margin-top:8px;
+  line-height:1.7}
+.note{display:flex;gap:9px;align-items:flex-start;font-size:12px;line-height:1.7;
+  border-radius:10px;padding:9px 11px;margin-top:7px;white-space:pre-line}
+.note img{width:16px;height:16px;flex:0 0 auto;margin-top:2px}
+.note.err{background:rgba(255,122,122,.09);border:1px solid rgba(255,122,122,.32);color:#ffc0c0}
+</style></head><body>
+<div class="win">
+
+  <div class="hero">
+    <div class="draglayer pywebview-drag-region" title="按住可拖动窗口"></div>
+    <div class="hero-right">
+      <div class="wctl">
+        <button class="wc" id="bmin" title="最小化" style="display:none">&#8212;</button>
+        <button class="wc cls" id="bclose" title="关闭">&#10005;</button>
+      </div>
+    </div>
+    <div class="hero-ttl">
+      <div class="hero-badge">AFDIAN · SKU TOOL</div>
+      <h1>
+        <span class="ttl">爱发电 <em>SKU 查询器</em></span>
+        <button class="tag" id="sponsor" title="作者：StarCloudDream"
+          >赞助一下 <span class="by">by StarCloudDream</span></button>
+        <a class="ver" id="verlink" href="https://github.com/StarCloudDream"
+           title="GitHub · StarCloudDream">v1.0</a>
+      </h1>
+      <div class="sub">粘贴商品 / 方案地址 &rarr; 输出 plan_id 与 sku_id　·　公开接口读取，无需 token</div>
+    </div>
+  </div>
+
+  <div class="body">
+    <div class="lblrow">
+      <div class="l">商品地址</div>
+      <div class="r">支持批量，每行一个；也可直接贴 32 位 id</div>
+    </div>
+
+    <div class="fieldwrap" id="fwrap">
+      <textarea id="inp" rows="1" spellcheck="false"
+        placeholder="https://afdian.com/item/5b812044146d11f080825254001e7c00"></textarea>
+      <button class="fclear" id="fclear" title="清空输入"><i></i></button>
+    </div>
+
+    <div class="actrow">
+      <div class="checkrow" id="checkrow">
+        <span class="cbx on" id="cbx"></span>
+        <span>自动复制 sku_id</span>
+      </div>
+      <span class="pill"><img src="app_assets/info.png" alt="">右键 → 复制链接地址</span>
+      <span class="pill alt"><code>Ctrl + Enter</code> 提交</span>
+      <button class="mbtn" id="go">查询</button>
+    </div>
+  </div>
+
+  <div class="rpanel" id="rpanel">
+    <div class="rhead pywebview-drag-region">
+      <div class="rtab" id="rtab">查询结果</div>
+    </div>
+    <div class="rlist" id="out"></div>
+  </div>
+
+</div>
+<script>
+const $=s=>document.querySelector(s);
+const inp=$("#inp"), out=$("#out"), go=$("#go"), fwrap=$("#fwrap");
+let lastSkus=[];
+const FRAMELESS=new URLSearchParams(location.search).has("frameless");
+if (FRAMELESS) document.documentElement.classList.add("frameless");
+
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+/* 抄写走三步：先试异步剪贴板（127.0.0.1 算安全上下文，WebView2 里能用），
+   被拒了就退回 execCommand 那套老办法，两条都不行才算真失败。
+   不然按钮点了没动静，用户根本不知道卡在哪。 */
+function legacyCopy(t){
+  try{
+    const ta=document.createElement("textarea");
+    ta.value=t; ta.setAttribute("readonly","");
+    ta.style.cssText="position:fixed;top:0;left:0;opacity:0;pointer-events:none";
+    document.body.appendChild(ta);
+    ta.select(); ta.setSelectionRange(0, t.length);
+    const ok=document.execCommand("copy");
+    ta.remove();
+    return ok;
+  }catch(e){ return false; }
+}
+function copyText(t){
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    return navigator.clipboard.writeText(t).catch(()=>{
+      if(!legacyCopy(t)) throw new Error("剪贴板不可用");
+    });
+  }
+  return legacyCopy(t)?Promise.resolve():Promise.reject(new Error("剪贴板不可用"));
+}
+
+/* 窗口默认 289px 高（原来 578 砍了一半）。
+   输入框变多行时窗口跟着往下长，这样查询区永远挤不掉、顶部大图也不会忽高忽低。
+   出结果了再拉到 500，列表在内部自己滚。 */
+const TA_BASE=42, TA_MAX=92;
+const WIN_SMALL=289, WIN_TALL=500;
+let TALL=false, TA_H=TA_BASE;
+
+function syncWin(){
+  const h=(TALL ? WIN_TALL : WIN_SMALL) + Math.max(0, TA_H-TA_BASE);
+  try{
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.resize)
+      window.pywebview.api.resize(h);
+  }catch(e){}
+}
+function layout(tall){
+  TALL=!!tall;
+  document.body.classList.toggle("has-results", TALL);
+  syncWin();
+}
+
+/* 一行就是药丸，换行后自动长高，圆角不变 */
+function autoGrow(){
+  inp.style.height=TA_BASE+"px";
+  const h=Math.min(Math.max(TA_BASE, inp.scrollHeight+2), TA_MAX);
+  inp.style.height=h+"px";
+  fwrap.classList.toggle("multi", h>48);
+  if (h!==TA_H){ TA_H=h; syncWin(); }
+}
+inp.addEventListener("input",autoGrow);
+window.addEventListener("load",autoGrow);
+
+/* 苹果通知栏那套滚动，试了几轮才调顺，记一下几个坑：
+   系统滚轮是一格直接跳到位，中间没有过渡，卡片大小和透明度就会"啪"地跳一下。
+   所以滚轮事件自己接管：位移先累加成一个目标值，再用 rAF 每帧往那边推。
+   注意别在每帧里读 getBoundingClientRect 又同时写 transform，那样会反复触发重排；
+   几何量（offsetTop / offsetHeight）量一次缓存起来就行。
+   还有，算每行节奏要用 offsetHeight，别用 rect.height —— 后者包含 transform 的缩放，
+   卡片一缩小它跟着变，会自己跟自己打架。 */
+const list=out;
+let GEO=[], SM=0, RAF=0, LAST=0, ON=false;
+let TARGET=0, POS=0, WROTE=-1, PENDING=false;
+const LINE=12;                 /* 焦点线就是列表的上内边距，第一行停在这个位置 */
+const RESP=0.38;               /* 每帧往目标靠多少，按时间归一，60Hz 下大概 32ms 到位 */
+
+const maxTop=()=>Math.max(0, list.scrollHeight-list.clientHeight);
+
+/* 吸附点。
+   以前是自由累加位移，滚一格停哪儿全看 deltaY 大小，于是第二行经常停在
+   "不上不下"的地方 —— 那会儿缩放才 0.93，看着又小又别扭，再滚一下又冲过头了。
+   现在改成一格一个吸附点：吸附值 = 卡片 offsetTop - 焦点线，
+   也就是让这一行的顶边正好压在焦点线上，缩放刚好是 1.0，跟第一行长得一样。
+   滚轮只管推进索引，位置永远落在吸附点上。 */
+let SNAP=[0], SNAP_I=0, ACC=0, WHEEL_T=-1e9, STEP=100, CAL=false;
+
+function nearestIndex(v){
+  let bi=0, bd=Infinity;
+  for (let i=0;i<SNAP.length;i++){
+    const d=Math.abs(SNAP[i]-v);
+    if (d<bd){ bd=d; bi=i; }
+  }
+  return bi;
+}
+function buildSnap(){
+  const max=maxTop();
+  SNAP=[0];
+  for (const g of GEO){
+    if (g.note) continue;                    /* 错误提示条不算一行 */
+    const v=Math.max(0, Math.min(max, g.top-LINE));
+    if (v - SNAP[SNAP.length-1] > 4) SNAP.push(v);   /* 跟上一行粘在一起的重复点去掉 */
+  }
+  if (max - SNAP[SNAP.length-1] > 4) SNAP.push(max); /* 末尾补一个滚到底 */
+  SNAP_I=nearestIndex(TARGET);
+}
+
+function measure(){            /* 只在渲染完或者尺寸变了之后调 */
+  GEO=[];
+  for (const el of list.children){
+    GEO.push({el:el, top:el.offsetTop, h:el.offsetHeight,
+              note:el.classList.contains("note")});
+  }
+  /* 末尾补白，专门为了最后一行也能滚到焦点线上。
+   不补的话 maxTop 会比"末卡顶边对齐焦点线"还小一点，滚到底时最后一行总是差半格、
+   缩放也到不了 1。要补的高度 = 列表可视高 - 末卡高 - 末卡下边距 - 焦点线。
+   没有卡片时补 0，纯错误提示的状态不该拖一片空白出来。 */
+  let last=null;
+  for (let i=list.children.length-1;i>=0;i--){
+    if(!list.children[i].classList.contains("note")){ last=list.children[i]; break; }
+  }
+  let pad=0;
+  if(last){
+    const mb=parseFloat(getComputedStyle(last).marginBottom)||0;
+    pad=Math.max(0, Math.round(list.clientHeight - last.offsetHeight - mb - LINE));
+  }
+  list.style.paddingBottom=pad+"px";
+  TARGET=list.scrollTop;
+  POS=list.scrollTop;
+  SM=list.scrollTop;
+  WROTE=-1; PENDING=false;
+  ACC=0;
+  buildSnap();
+}
+function paint(){
+  for (let i=0;i<GEO.length;i++){
+    const g=GEO[i];
+    if (g.note){ g.el.style.transform=""; g.el.style.opacity=""; continue; }
+    const k=(g.top-SM-LINE)/(g.h+10);      /* 0 是当前行，1 是下一条，负数表示已经钻进头部了 */
+    let sc, op;
+    if (k<0){
+      const a=Math.max(k,-1);
+      sc=1+0.05*a;
+      op=Math.max(0, 1+1.5*a);
+    }else{
+      sc=Math.max(0.74, 1-0.13*k);
+      op=Math.max(0.12, 1-0.40*k);
+    }
+    g.el.style.transform="scale("+sc.toFixed(4)+")";
+    g.el.style.opacity=op.toFixed(4);
+  }
+}
+function loop(t){
+  if(!LAST){ LAST=t; RAF=requestAnimationFrame(loop); return; }
+  const dt=Math.min(64, t-LAST); LAST=t;
+  /* 按时间归一，144Hz 和 60Hz 的手感才一致 */
+  const a=1-Math.pow(1-RESP, dt/16.7);
+  const max=maxTop();
+  if(TARGET>max) TARGET=max;      /* 内容变短时目标会超出上限，先夹住，不然永远收敛不了 */
+  /* 这里有个坑：不能拿 list.scrollTop 当推进量。
+   Chromium 会把 scrollTop 取整，写 537.22 读回来还是 537。
+   要是每帧都"从取整后的值再算一次"，等剩下的距离乘上缓动系数不到 0.5px 时，
+   写进去又被取整回原值，位置就原地不动、rAF 空转（试过，662 帧纹丝不动）。
+   所以自己用浮点记着位置，滚动事件里也不去覆盖它。 */
+  POS += (TARGET-POS)*a;
+  const done=Math.abs(TARGET-POS)<0.4;
+  if(done) POS=TARGET;
+  const want=Math.max(0, Math.min(max, POS));
+  if(Math.abs(want-list.scrollTop)>0.01){
+    PENDING=true;                 /* 先插个旗：这次的滚动事件是我们自己写的 */
+    list.scrollTop=want;
+    WROTE=list.scrollTop;         /* 写下去再读回来，拿到浏览器取整后的真实位置 */
+  }
+  SM=list.scrollTop;              /* 缩放直接跟真实滚动位置走，不加第二层延迟 */
+  paint();
+  if(done){ ON=false; RAF=0; PENDING=false; }else{ RAF=requestAnimationFrame(loop); }
+}
+function kick(){
+  if(ON) return;               /* 已经在跑了就别再开一个，rAF 会叠起来 */
+  ON=true; LAST=0; RAF=requestAnimationFrame(loop);
+}
+/* 滚轮：攒够一格就往下推一个吸附点 */
+function stepTo(i){
+  i=Math.max(0, Math.min(SNAP.length-1, i));
+  if(i===SNAP_I && Math.abs(TARGET-SNAP[i])<0.5) return;   /* 已经停在目标上了，忽略 */
+  SNAP_I=i;
+  TARGET=SNAP[i];
+  kick();
+}
+list.addEventListener("wheel",e=>{
+  if(e.ctrlKey||e.metaKey) return;                 /* Ctrl+滚轮留给缩放，别抢 */
+  e.preventDefault();
+  const u=e.deltaMode===1?16:(e.deltaMode===2?list.clientHeight:1);
+  const d=Math.abs(e.deltaY*u);
+  /* 先算清楚"一格"是多大。Chromium 标准滚轮一格 deltaY 约 100，
+   但有些鼠标驱动会发 120 或 133，所以取样本自适应，别写死。 */
+  if(!CAL && d>=60){ STEP=Math.max(60, Math.min(160, d)); CAL=true; }
+  ACC+=e.deltaY*u;
+  WHEEL_T=performance.now();                       /* 记下滚轮时间，下面 scroll 里要用到 */
+  let guard=0;
+  while(Math.abs(ACC)>=STEP && guard++<24){        /* 一次甩了多格就一格一格推，不会冲过头 */
+    const dir=ACC>0?1:-1;
+    ACC-=dir*STEP;
+    stepTo(SNAP_I+dir);
+  }
+  if(guard>=24) ACC=0;
+},{passive:false});
+/* 拖动滚动条、键盘、触控板这些：只有不是我们写的位移，才需要重新对目标 */
+list.addEventListener("scroll",()=>{
+  const st=list.scrollTop;
+  if(PENDING){ PENDING=false; }
+  else if(performance.now()-WHEEL_T>200 && (WROTE<0 || Math.abs(st-WROTE)>1.5)){
+    TARGET=st; POS=st;
+    SNAP_I=nearestIndex(st);   /* 手拖到哪，吸附基准就跟着挪到最近的那个点 */
+    ACC=0;
+  }
+  kick();
+},{passive:true});
+window.addEventListener("resize",()=>{ measure(); paint(); });
+
+let autoCopy=true;
+$("#checkrow").addEventListener("click",()=>{
+  autoCopy=!autoCopy; $("#cbx").classList.toggle("on",autoCopy);
+});
+
+function rowHtml(k, val, cls){
+  if(!val) return "";
+  const id=esc(val);
+  return `<div class="row ${cls||""}"><span class="k">${k}</span><code>${id}</code>
+    <button class="cp" data-copy="${id}">复制</button></div>`;
+}
+
+function item(r){
+  if(!r.ok){
+    return `<div class="ritem">
+      <div class="top"><div class="nm">查询失败</div></div>
+      <div class="note err"><img src="app_assets/info.png" alt="">
+        <div>${esc(r.error)}</div></div>
+      <div class="src">输入：${esc(r.input||"(空)")}</div></div>`;
+  }
+  const p=r.plan||{}, skus=r.skus||[];
+  const skuIds=skus.map(s=>s.sku_id).filter(Boolean);
+  let body="";
+  if(skuIds.length===0){
+    body=`<div class="none">该方案没有型号（常规赞助方案）：订单里 <code>plan_id</code>
+      就是它的身份，<code>sku_detail</code> 为空数组。</div>`;
+  }else{
+    body=skuIds.map(id=>rowHtml("sku_id", id, "sku")).join("");
+  }
+  return `<div class="ritem">
+    <div class="top">
+      <div class="nm">${esc(p.name||"(无名称)")}</div>
+      <div class="price">￥${esc(p.price||"")}</div>
+    </div>
+    ${rowHtml("plan_id", r.plan_id)}
+    ${rowHtml("创作者", p.user_id)}
+    ${body}
+    <div class="src">${esc(r.source||"")}</div>
+  </div>`;
+}
+
+async function run(){
+  const list=inp.value.split("\n").map(s=>s.trim()).filter(Boolean);
+  if(!list.length){ go.focus(); return; }
+  go.disabled=true; go.innerHTML=`<span class="spin"></span>查询中…`;
+  sponsorGlow();                 /* 顺手让「赞助一下」亮一下，不影响查询本身 */
+  out.innerHTML="";
+  try{
+    const qs=list.map(u=>"url="+encodeURIComponent(u)).join("&");
+    const res=await fetch("/api/resolve?"+qs);
+    const data=await res.json();
+    const rs=data.results||[];
+    lastSkus=rs.flatMap(r=>(r.skus||[]).map(s=>s.sku_id)).filter(Boolean);
+    out.innerHTML=rs.map(item).join("");
+    $("#rtab").textContent=`查询结果 · ${rs.length} 项`;
+    out.scrollTop=0;
+    layout(true);
+    measure(); paint();          /* 先把几何量一遍（offsetTop / offsetHeight），再落初始状态 */
+    if(autoCopy&&lastSkus.length){
+      copyText(lastSkus.join("\n")).then(()=>{
+        const t=$("#rtab"); const old=t.textContent;
+        t.textContent=old+"　已自动复制";
+        setTimeout(()=>{ t.textContent=old; },1800);
+      }).catch(()=>{});
+    }
+  }catch(e){
+    out.innerHTML=`<div class="note err"><img src="app_assets/info.png" alt="">
+      <div>连不上本地服务：${esc(String(e))}<br>程序可能已经退出了，重新运行一次即可。</div></div>`;
+    layout(true);
+  }finally{
+    go.disabled=false; go.textContent="查询";
+  }
+}
+
+document.addEventListener("click",e=>{
+  const b=e.target.closest(".cp"); if(!b) return;
+  const back=()=>setTimeout(()=>{
+    b.textContent="复制"; b.classList.remove("done","fail");
+  },1200);
+  copyText(b.dataset.copy).then(()=>{
+    b.textContent="已复制"; b.classList.add("done"); back();
+  }).catch(()=>{                       /* 真失败了得让人看见，不能悄悄咽掉 */
+    b.textContent="复制失败"; b.classList.add("fail"); back();
+  });
+});
+$("#fclear").addEventListener("click",()=>{
+  inp.value=""; inp.focus(); autoGrow();
+  out.innerHTML=""; lastSkus=[];
+  GEO=[]; SM=0; ON=false;
+  list.style.paddingBottom="0px";     /* 顺便把上一条结果的末尾补白清掉 */
+  SNAP=[0]; SNAP_I=0; ACC=0;
+  layout(false);
+});
+$("#bclose").addEventListener("click",async()=>{
+  try{ await fetch("/api/quit"); }catch(e){}
+});
+/* 开外链优先交给 Python 那边的 Api.open_url（有白名单，走系统浏览器）。
+   在浏览器里直接看这个页面时没有那个接口，就退回 window.open，两边都能点。 */
+const SPONSOR_URL="https://afdian.com/a/StarCloudDream?utm_source=copylink&utm_medium=link";
+const GITHUB_URL ="https://github.com/StarCloudDream";
+function openLink(url){
+  try{
+    if(window.pywebview&&window.pywebview.api&&window.pywebview.api.open_url){
+      window.pywebview.api.open_url(url); return;
+    }
+  }catch(e){}
+  window.open(url,"_blank","noopener");
+}
+/* 让「赞助一下」闪一下，动画在 CSS 的 @keyframes sponsorGlow */
+function sponsorGlow(){
+  const t=$("#sponsor");
+  if(!t) return;
+  t.classList.remove("glow");
+  void t.offsetWidth;   /* 强制回流一下，连着点好几次也能重新播 */
+  t.classList.add("glow");
+}
+$("#sponsor").addEventListener("animationend",e=>{
+  if(e.animationName==="sponsorGlow") e.target.classList.remove("glow");
+});
+$("#sponsor").addEventListener("click",()=>openLink(SPONSOR_URL));
+$("#verlink").addEventListener("click",e=>{ e.preventDefault(); openLink(GITHUB_URL); });
+$("#bmin").addEventListener("click",()=>{
+  if(window.pywebview&&window.pywebview.api) window.pywebview.api.minimize();
+});
+if(window.pywebview) $("#bmin").style.display="flex";
+else window.addEventListener("pywebviewready",()=>{$("#bmin").style.display="flex";});
+go.addEventListener("click",run);
+inp.addEventListener("keydown",e=>{
+  if(e.key==="Enter"&&(e.ctrlKey||e.metaKey)){ e.preventDefault(); run(); }
+});
+
+setInterval(()=>{fetch("/api/ping").catch(()=>{});},5000);
+fetch("/api/ping").catch(()=>{});
+</script></body></html>

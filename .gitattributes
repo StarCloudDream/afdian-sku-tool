@@ -1,0 +1,8 @@
+# 文本统一按 LF 存，免得在 mac / Linux 上跑出一堆换行符差异
+* text=auto eol=lf
+
+# 这些是二进制，别让 git 去碰
+*.png binary
+*.jpg binary
+*.ico binary
+*.icns binary

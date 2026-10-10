@@ -1,0 +1,73 @@
+name: 打包
+
+# 打个 tag 推上去就自动出三个平台的成品，也可以到 Actions 页面手动点一下。
+# Windows 这边其实本地也能打，macOS 和 Linux 就靠这里了 —— PyInstaller 不支持交叉编译，
+# 只能各回各家打。
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows
+          - os: macos-latest
+            name: macos
+          - os: ubuntu-latest
+            name: linux
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 装 Python 依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Linux 还要装系统库
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gir1.2-gtk-3.0 gir1.2-webkit2-4.1
+          # pywebview 在 Linux 上靠 PyGObject 和 WebKitGTK，
+          # 这两个是系统包，pip 装不到，得让解释器能找到它们
+          echo "PYTHONPATH=/usr/lib/python3/dist-packages" >> "$GITHUB_ENV"
+
+      - name: 打包
+        run: python build.py
+
+      # mac 的 .app 是个目录，里面还有符号链接，直接交给 upload-artifact 容易残缺。
+      # 用 ditto 压成 zip 最稳（它专门为 mac 的文件属性设计，符号链接和权限都保得住）。
+      - name: 收尾（macOS 压成 zip）
+        if: runner.os == 'macOS'
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            dist/afdian_sku_app.app dist/afdian_sku_app-macos.zip
+          rm -rf dist/afdian_sku_app.app
+
+      # Linux 那个可执行文件也一样，tar 打包能保住可执行位
+      - name: 收尾（Linux 压成 tar.gz）
+        if: runner.os == 'Linux'
+        run: |
+          cd dist
+          tar czf afdian_sku_app-linux.tar.gz afdian_sku_app
+          rm -f afdian_sku_app
+          cd ..
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: afdian-sku-tool-${{ matrix.name }}
+          path: dist/*
+          if-no-files-found: error
