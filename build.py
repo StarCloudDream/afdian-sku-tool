@@ -23,6 +23,13 @@ import subprocess
 import sys
 import time
 
+# Windows 上只要输出被重定向（管道、写文件、CI），Python 就改用系统 locale 编码，
+# 中文在 cp1252 里没有对应字符，第一个 print 就 UnicodeEncodeError。
+# 终端里跑没事不代表别处没事，这里直接把输出流掰成 UTF-8。
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8")
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ENTRY = os.path.join(HERE, "afdian_sku_app.py")
 STAGE = os.path.join(HERE, "_bundle")

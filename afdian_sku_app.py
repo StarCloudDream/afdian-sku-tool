@@ -102,6 +102,12 @@ for _name in ("stdout", "stderr"):
     if getattr(sys, _name, None) is None:
         setattr(sys, _name, _Null())
 
+# 同上：输出被重定向时按 UTF-8 走，否则 --selftest 的中文结果在一堆环境下都印不出来
+for _name in ("stdout", "stderr"):
+    _stream = getattr(sys, _name, None)
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8")
+
 
 def log(msg):
     """每行前面都挂着"距进程启动多少毫秒"，启动慢在哪一段一目了然"""
